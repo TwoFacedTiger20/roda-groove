@@ -99,8 +99,9 @@ export function joinRoda(opts: {
       });
     });
     opts.onPlayers(players);
-    if (host && opts.onMeta) {
-      opts.onMeta({ rodaName: host.rodaName, genre: host.genre, hostId: host.id });
+    const h = host as Host | null;
+    if (h && opts.onMeta) {
+      opts.onMeta({ rodaName: h.rodaName, genre: h.genre, hostId: h.id });
     }
   });
 
