@@ -310,11 +310,48 @@ function RodaPage() {
           </div>
         </div>
 
+        {/* Note picker for selected pitched instrument */}
+        {instrument && PITCHED[instrument] && (
+          <div className="mt-6 bg-card pixel-border p-3 sm:p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-pixel text-[10px] text-accent">
+                NOTE · {INSTRUMENTS.find((x) => x.id === instrument)?.name.toUpperCase()}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {PITCHED[instrument]!.map((n) => {
+                  const active = (notes[instrument] ?? PITCHED[instrument]![0]) === n;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        setNotes((prev) => ({ ...prev, [instrument]: n }));
+                        handleHit(instrument, n);
+                      }}
+                      className={`text-pixel text-[10px] px-2 py-1.5 pixel-border-sm transition-colors ${
+                        active
+                          ? "bg-mango text-night"
+                          : "bg-night text-sand hover:bg-muted"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-2 text-display text-sm text-sand/60">
+              Tap a note to change pitch · then tap the instrument to play
+            </div>
+          </div>
+        )}
+
         {/* Instruments */}
         <h2 className="mt-8 text-pixel text-sm text-coral">PICK YOUR INSTRUMENT · TAP TO PLAY</h2>
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {INSTRUMENTS.map((ins) => {
             const selected = instrument === ins.id;
+            const isPitched = !!PITCHED[ins.id];
+            const currentNote = notes[ins.id] ?? PITCHED[ins.id]?.[0];
             return (
               <button
                 key={ins.id}
@@ -348,6 +385,11 @@ function RodaPage() {
                 </div>
                 <div className="mt-2 text-pixel text-[10px] text-mango">{ins.name.toUpperCase()}</div>
                 <div className="text-display text-base text-sand/70">{ins.hint}</div>
+                {isPitched && (
+                  <div className="mt-1 text-pixel text-[9px] text-accent">
+                    ♪ {currentNote}
+                  </div>
+                )}
               </button>
             );
           })}
