@@ -4,6 +4,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   INSTRUMENTS,
+  PITCHED,
   playInstrument,
   type InstrumentId,
 } from "@/lib/instruments";
@@ -55,19 +56,24 @@ function RodaPage() {
     return n;
   }, []);
 
-  const initialRodaName = useMemo(() => {
-    if (typeof window === "undefined") return "Open Roda";
-    return sessionStorage.getItem(`roda-name:${rodaId}`) || `Roda ${rodaId}`;
-  }, [rodaId]);
+  const initialRodaName = `Roda ${rodaId}`;
 
   const [playerName, setPlayerName] = useState(initialName);
+  const [rodaName, setRodaName] = useState(initialRodaName);
   const [editingName, setEditingName] = useState(false);
   const [instrument, setInstrument] = useState<InstrumentId | null>(null);
+  const [notes, setNotes] = useState<Partial<Record<InstrumentId, string>>>({});
   const [players, setPlayers] = useState<Player[]>([]);
   const [hits, setHits] = useState<Array<HitEvent & { key: number }>>([]);
   const [recording, setRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [full, setFull] = useState(false);
+
+  // Hydrate roda name from sessionStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    const stored = sessionStorage.getItem(`roda-name:${rodaId}`);
+    if (stored) setRodaName(stored);
+  }, [rodaId]);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const recorderRef = useRef<RodaRecorder | null>(null);
@@ -87,10 +93,10 @@ function RodaPage() {
   useEffect(() => {
     const ch = joinRoda({
       rodaId,
-      rodaName: initialRodaName,
+      rodaName,
       player: me,
       onHit: (h) => {
-        playInstrument(h.instrument);
+        playInstrument(h.instrument, h.note);
         const k = ++hitKeyRef.current;
         setHits((prev) => [...prev.slice(-30), { ...h, key: k }]);
       },
@@ -116,23 +122,23 @@ function RodaPage() {
   // Update presence on local changes
   useEffect(() => {
     if (channelRef.current) {
-      void updatePlayer(channelRef.current, me, initialRodaName);
+      void updatePlayer(channelRef.current, me, rodaName);
     }
-  }, [me, initialRodaName]);
+  }, [me, rodaName]);
 
   // Periodically announce roda for discovery
   useEffect(() => {
     const ping = () => {
       void pingDiscovery({
         id: rodaId,
-        name: initialRodaName,
+        name: rodaName,
         playerCount: players.length || 1,
       });
     };
     ping();
     const t = setInterval(ping, 8000);
     return () => clearInterval(t);
-  }, [rodaId, initialRodaName, players.length]);
+  }, [rodaId, rodaName, players.length]);
 
   // Cleanup hit visuals
   useEffect(() => {
@@ -141,9 +147,10 @@ function RodaPage() {
     return () => clearTimeout(t);
   }, [hits]);
 
-  const handleHit = (id: InstrumentId) => {
-    playInstrument(id);
-    const hit: HitEvent = { playerId: playerIdRef.current, instrument: id, at: Date.now() };
+  const handleHit = (id: InstrumentId, note?: string) => {
+    const n = note ?? notes[id];
+    playInstrument(id, n);
+    const hit: HitEvent = { playerId: playerIdRef.current, instrument: id, note: n, at: Date.now() };
     const k = ++hitKeyRef.current;
     setHits((prev) => [...prev.slice(-30), { ...hit, key: k }]);
     if (channelRef.current) void broadcastHit(channelRef.current, hit);
@@ -204,7 +211,7 @@ function RodaPage() {
             <div className="min-w-0">
               <div className="text-pixel text-[10px] text-accent">RODA</div>
               <h1 className="text-pixel text-base sm:text-xl text-mango truncate">
-                {initialRodaName}
+                {rodaName}
               </h1>
               <div className="text-display text-base text-sand/70 mt-1">/{rodaId}</div>
             </div>
@@ -303,11 +310,48 @@ function RodaPage() {
           </div>
         </div>
 
+        {/* Note picker for selected pitched instrument */}
+        {instrument && PITCHED[instrument] && (
+          <div className="mt-6 bg-card pixel-border p-3 sm:p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-pixel text-[10px] text-accent">
+                NOTE · {INSTRUMENTS.find((x) => x.id === instrument)?.name.toUpperCase()}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {PITCHED[instrument]!.map((n) => {
+                  const active = (notes[instrument] ?? PITCHED[instrument]![0]) === n;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        setNotes((prev) => ({ ...prev, [instrument]: n }));
+                        handleHit(instrument, n);
+                      }}
+                      className={`text-pixel text-[10px] px-2 py-1.5 pixel-border-sm transition-colors ${
+                        active
+                          ? "bg-mango text-night"
+                          : "bg-night text-sand hover:bg-muted"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-2 text-display text-sm text-sand/60">
+              Tap a note to change pitch · then tap the instrument to play
+            </div>
+          </div>
+        )}
+
         {/* Instruments */}
         <h2 className="mt-8 text-pixel text-sm text-coral">PICK YOUR INSTRUMENT · TAP TO PLAY</h2>
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           {INSTRUMENTS.map((ins) => {
             const selected = instrument === ins.id;
+            const isPitched = !!PITCHED[ins.id];
+            const currentNote = notes[ins.id] ?? PITCHED[ins.id]?.[0];
             return (
               <button
                 key={ins.id}
@@ -341,6 +385,11 @@ function RodaPage() {
                 </div>
                 <div className="mt-2 text-pixel text-[10px] text-mango">{ins.name.toUpperCase()}</div>
                 <div className="text-display text-base text-sand/70">{ins.hint}</div>
+                {isPitched && (
+                  <div className="mt-1 text-pixel text-[9px] text-accent">
+                    ♪ {currentNote}
+                  </div>
+                )}
               </button>
             );
           })}

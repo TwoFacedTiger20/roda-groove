@@ -26,6 +26,27 @@ export type InstrumentMeta = {
   hint: string;
 };
 
+// Note name → frequency (Hz). Covers a useful range for our pitched voices.
+export const NOTE_FREQS: Record<string, number> = {
+  A2: 110.0, B2: 123.47,
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.0, A3: 220.0, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.0, B5: 987.77,
+  C6: 1046.5,
+};
+
+// Which instruments accept a note, and their available note palettes.
+export const PITCHED: Partial<Record<InstrumentId, string[]>> = {
+  steelpan: ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5", "G5", "C6"],
+  agogo:    ["E4", "G4", "A4", "C5", "E5", "G5"],
+  berimbau: ["A2", "B2", "C3", "D3", "E3", "G3"],
+  cuica:    ["C4", "D4", "E4", "G4", "A4", "C5"],
+  conga:    ["A2", "C3", "D3", "E3", "G3", "A3"],
+  bongo:    ["E3", "G3", "A3", "C4", "E4", "G4"],
+  timbales: ["C3", "D3", "E3", "G3", "A3", "C4"],
+  tamborim: ["A4", "C5", "D5", "E5", "G5", "A5"],
+};
+
 export const INSTRUMENTS: InstrumentMeta[] = [
   { id: "surdo",     name: "Surdo",     origin: "Brazil",    emoji: "🥁", color: "var(--hibiscus)", hint: "Deep boom" },
   { id: "repinique", name: "Repinique", origin: "Brazil",    emoji: "🪘", color: "var(--coral)",    hint: "Sharp call" },
@@ -84,7 +105,7 @@ function noiseBuffer(ctx: AudioContext, dur = 0.5): AudioBuffer {
   return buf;
 }
 
-type Voice = (ctx: AudioContext, out: AudioNode) => void;
+type Voice = (ctx: AudioContext, out: AudioNode, freq?: number) => void;
 
 const VOICES: Record<InstrumentId, Voice> = {
   surdo: (ctx, out) => {
@@ -121,24 +142,25 @@ const VOICES: Record<InstrumentId, Voice> = {
     noise.connect(hp).connect(g).connect(out);
     noise.start(); noise.stop(ctx.currentTime + 0.2);
   },
-  tamborim: (ctx, out) => {
+  tamborim: (ctx, out, freq) => {
+    const f = freq ?? 900;
     const osc = ctx.createOscillator();
     osc.type = "square";
     const t = ctx.currentTime;
-    osc.frequency.setValueAtTime(900, t);
-    osc.frequency.exponentialRampToValueAtTime(500, t + 0.04);
+    osc.frequency.setValueAtTime(f, t);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.04);
     const g = envGain(ctx, 0.001, 0.06, 0.5);
     osc.connect(g).connect(out);
     osc.start(); osc.stop(t + 0.1);
   },
-  agogo: (ctx, out) => {
-    const freq = Math.random() > 0.5 ? 880 : 660;
+  agogo: (ctx, out, freq) => {
+    const f = freq ?? (Math.random() > 0.5 ? 880 : 660);
     const osc = ctx.createOscillator();
     osc.type = "sine";
-    osc.frequency.value = freq;
+    osc.frequency.value = f;
     const osc2 = ctx.createOscillator();
     osc2.type = "sine";
-    osc2.frequency.value = freq * 2.01;
+    osc2.frequency.value = f * 2.01;
     const g = envGain(ctx, 0.001, 0.35, 0.45);
     const g2 = envGain(ctx, 0.001, 0.2, 0.2);
     osc.connect(g).connect(out);
@@ -154,7 +176,6 @@ const VOICES: Record<InstrumentId, Voice> = {
     bp.type = "bandpass"; bp.frequency.value = 6000; bp.Q.value = 0.5;
     const g = envGain(ctx, 0.001, 0.18, 0.5);
     noise.connect(bp).connect(g).connect(out);
-    // body thump
     const osc = ctx.createOscillator();
     osc.type = "sine"; osc.frequency.value = 200;
     const og = envGain(ctx, 0.001, 0.1, 0.3);
@@ -162,28 +183,28 @@ const VOICES: Record<InstrumentId, Voice> = {
     const t = ctx.currentTime;
     noise.start(); noise.stop(t + 0.25); osc.start(); osc.stop(t + 0.15);
   },
-  cuica: (ctx, out) => {
+  cuica: (ctx, out, freq) => {
+    const base = freq ?? 300;
     const osc = ctx.createOscillator();
     osc.type = "sawtooth";
     const t = ctx.currentTime;
-    osc.frequency.setValueAtTime(300, t);
-    osc.frequency.linearRampToValueAtTime(900, t + 0.12);
-    osc.frequency.linearRampToValueAtTime(400, t + 0.25);
+    osc.frequency.setValueAtTime(base, t);
+    osc.frequency.linearRampToValueAtTime(base * 3, t + 0.12);
+    osc.frequency.linearRampToValueAtTime(base * 1.33, t + 0.25);
     const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass"; bp.frequency.value = 1200; bp.Q.value = 6;
+    bp.type = "bandpass"; bp.frequency.value = base * 4; bp.Q.value = 6;
     const g = envGain(ctx, 0.005, 0.28, 0.4);
     osc.connect(bp).connect(g).connect(out);
     osc.start(); osc.stop(t + 0.35);
   },
-  berimbau: (ctx, out) => {
+  berimbau: (ctx, out, freq) => {
     const osc = ctx.createOscillator();
     osc.type = "triangle";
     const t = ctx.currentTime;
-    const f = 220 + Math.random() * 30;
+    const f = (freq ?? 220) + Math.random() * 6;
     osc.frequency.setValueAtTime(f, t);
     osc.frequency.exponentialRampToValueAtTime(f * 0.9, t + 0.4);
     const g = envGain(ctx, 0.002, 0.5, 0.55);
-    // metallic shimmer
     const osc2 = ctx.createOscillator();
     osc2.type = "square"; osc2.frequency.value = f * 3;
     const g2 = envGain(ctx, 0.001, 0.15, 0.1);
@@ -191,32 +212,35 @@ const VOICES: Record<InstrumentId, Voice> = {
     osc2.connect(g2).connect(out);
     osc.start(); osc.stop(t + 0.55); osc2.start(); osc2.stop(t + 0.2);
   },
-  conga: (ctx, out) => {
+  conga: (ctx, out, freq) => {
+    const f = freq ?? 220;
     const osc = ctx.createOscillator();
     osc.type = "sine";
     const t = ctx.currentTime;
-    osc.frequency.setValueAtTime(220, t);
-    osc.frequency.exponentialRampToValueAtTime(140, t + 0.12);
+    osc.frequency.setValueAtTime(f, t);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.64, t + 0.12);
     const g = envGain(ctx, 0.001, 0.25, 0.8);
     osc.connect(g).connect(out);
     osc.start(); osc.stop(t + 0.3);
   },
-  bongo: (ctx, out) => {
+  bongo: (ctx, out, freq) => {
+    const f = freq ?? 380;
     const osc = ctx.createOscillator();
     osc.type = "sine";
     const t = ctx.currentTime;
-    osc.frequency.setValueAtTime(380, t);
-    osc.frequency.exponentialRampToValueAtTime(260, t + 0.08);
+    osc.frequency.setValueAtTime(f, t);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.68, t + 0.08);
     const g = envGain(ctx, 0.001, 0.18, 0.7);
     osc.connect(g).connect(out);
     osc.start(); osc.stop(t + 0.22);
   },
-  timbales: (ctx, out) => {
+  timbales: (ctx, out, freq) => {
+    const f = freq ?? 330;
     const osc = ctx.createOscillator();
     osc.type = "sine";
     const t = ctx.currentTime;
-    osc.frequency.setValueAtTime(330, t);
-    osc.frequency.exponentialRampToValueAtTime(180, t + 0.1);
+    osc.frequency.setValueAtTime(f, t);
+    osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.1);
     const g = envGain(ctx, 0.001, 0.2, 0.6);
     const noise = ctx.createBufferSource();
     noise.buffer = noiseBuffer(ctx, 0.08);
@@ -227,9 +251,9 @@ const VOICES: Record<InstrumentId, Voice> = {
     noise.connect(hp).connect(ng).connect(out);
     osc.start(); osc.stop(t + 0.25); noise.start(); noise.stop(t + 0.08);
   },
-  steelpan: (ctx, out) => {
-    const notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
-    const f = notes[Math.floor(Math.random() * notes.length)];
+  steelpan: (ctx, out, freq) => {
+    const defaults = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+    const f = freq ?? defaults[Math.floor(Math.random() * defaults.length)];
     const t = ctx.currentTime;
     [1, 2.76, 5.4].forEach((mult, i) => {
       const osc = ctx.createOscillator();
@@ -264,9 +288,10 @@ const VOICES: Record<InstrumentId, Voice> = {
   },
 };
 
-export function playInstrument(id: InstrumentId) {
+export function playInstrument(id: InstrumentId, note?: string) {
   const { ctx, master } = getAudio();
   const voice = VOICES[id];
   if (!voice) return;
-  voice(ctx, master);
+  const freq = note ? NOTE_FREQS[note] : undefined;
+  voice(ctx, master, freq);
 }

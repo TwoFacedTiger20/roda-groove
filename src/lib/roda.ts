@@ -17,6 +17,7 @@ export type Player = {
 export type HitEvent = {
   playerId: string;
   instrument: InstrumentId;
+  note?: string;
   at: number; // ms timestamp
 };
 
