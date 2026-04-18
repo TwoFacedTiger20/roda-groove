@@ -122,23 +122,23 @@ function RodaPage() {
   // Update presence on local changes
   useEffect(() => {
     if (channelRef.current) {
-      void updatePlayer(channelRef.current, me, initialRodaName);
+      void updatePlayer(channelRef.current, me, rodaName);
     }
-  }, [me, initialRodaName]);
+  }, [me, rodaName]);
 
   // Periodically announce roda for discovery
   useEffect(() => {
     const ping = () => {
       void pingDiscovery({
         id: rodaId,
-        name: initialRodaName,
+        name: rodaName,
         playerCount: players.length || 1,
       });
     };
     ping();
     const t = setInterval(ping, 8000);
     return () => clearInterval(t);
-  }, [rodaId, initialRodaName, players.length]);
+  }, [rodaId, rodaName, players.length]);
 
   // Cleanup hit visuals
   useEffect(() => {
@@ -147,9 +147,10 @@ function RodaPage() {
     return () => clearTimeout(t);
   }, [hits]);
 
-  const handleHit = (id: InstrumentId) => {
-    playInstrument(id);
-    const hit: HitEvent = { playerId: playerIdRef.current, instrument: id, at: Date.now() };
+  const handleHit = (id: InstrumentId, note?: string) => {
+    const n = note ?? notes[id];
+    playInstrument(id, n);
+    const hit: HitEvent = { playerId: playerIdRef.current, instrument: id, note: n, at: Date.now() };
     const k = ++hitKeyRef.current;
     setHits((prev) => [...prev.slice(-30), { ...hit, key: k }]);
     if (channelRef.current) void broadcastHit(channelRef.current, hit);
