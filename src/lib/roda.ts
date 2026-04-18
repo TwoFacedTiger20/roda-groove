@@ -145,13 +145,14 @@ export async function updatePlayer(
 export type PublicRoda = {
   id: string;
   name: string;
+  genre: string;
   playerCount: number;
   updatedAt: number;
 };
 
 const DISCOVERY_CHANNEL = "rodas:discovery";
 
-export function announceRoda(info: { id: string; name: string; playerCount: number }): RealtimeChannel {
+export function announceRoda(info: { id: string; name: string; genre: string; playerCount: number }): RealtimeChannel {
   const ch = supabase.channel(`announce:${info.id}`);
   ch.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
@@ -172,7 +173,6 @@ export function subscribeDiscovery(onUpdate: (rodas: PublicRoda[]) => void): Rea
   ch.on("broadcast", { event: "alive" }, (payload) => {
     const r = payload.payload as PublicRoda;
     rodas.set(r.id, r);
-    // Drop entries older than 20s
     const now = Date.now();
     for (const [id, roda] of rodas) {
       if (now - roda.updatedAt > 20000) rodas.delete(id);
@@ -184,7 +184,7 @@ export function subscribeDiscovery(onUpdate: (rodas: PublicRoda[]) => void): Rea
   return ch;
 }
 
-export async function pingDiscovery(info: { id: string; name: string; playerCount: number }) {
+export async function pingDiscovery(info: { id: string; name: string; genre: string; playerCount: number }) {
   await supabase.channel(DISCOVERY_CHANNEL).send({
     type: "broadcast",
     event: "alive",
