@@ -77,7 +77,8 @@ export function joinRoda(opts: {
       Player & { rodaName: string; genre?: string; joinedAt?: number }
     >();
     const players: Player[] = [];
-    let host: { id: string; rodaName: string; genre: string; joinedAt: number } | null = null;
+    type Host = { id: string; rodaName: string; genre: string; joinedAt: number };
+    let host: Host | null = null;
     Object.values(state).forEach((entries) => {
       entries.forEach((e) => {
         players.push({
