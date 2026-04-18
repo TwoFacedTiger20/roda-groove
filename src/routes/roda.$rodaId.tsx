@@ -56,19 +56,24 @@ function RodaPage() {
     return n;
   }, []);
 
-  const initialRodaName = useMemo(() => {
-    if (typeof window === "undefined") return "Open Roda";
-    return sessionStorage.getItem(`roda-name:${rodaId}`) || `Roda ${rodaId}`;
-  }, [rodaId]);
+  const initialRodaName = `Roda ${rodaId}`;
 
   const [playerName, setPlayerName] = useState(initialName);
+  const [rodaName, setRodaName] = useState(initialRodaName);
   const [editingName, setEditingName] = useState(false);
   const [instrument, setInstrument] = useState<InstrumentId | null>(null);
+  const [notes, setNotes] = useState<Partial<Record<InstrumentId, string>>>({});
   const [players, setPlayers] = useState<Player[]>([]);
   const [hits, setHits] = useState<Array<HitEvent & { key: number }>>([]);
   const [recording, setRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [full, setFull] = useState(false);
+
+  // Hydrate roda name from sessionStorage after mount (avoids SSR mismatch)
+  useEffect(() => {
+    const stored = sessionStorage.getItem(`roda-name:${rodaId}`);
+    if (stored) setRodaName(stored);
+  }, [rodaId]);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
   const recorderRef = useRef<RodaRecorder | null>(null);
