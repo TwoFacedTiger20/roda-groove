@@ -3,10 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
+  GENRES,
   INSTRUMENTS,
   PITCHED,
   playInstrument,
   type InstrumentId,
+  type Origin,
 } from "@/lib/instruments";
 import {
   MAX_PLAYERS,
@@ -38,11 +40,32 @@ const RANDOM_NAMES = [
   "Café", "Rumba", "Samba", "Salsa", "Cacau", "Açaí",
 ];
 
+const ORIGINS: Origin[] = [
+  "Brazil", "Caribbean", "Latin", "Africa", "Middle East", "India",
+  "East Asia", "Southeast Asia", "Europe", "Andes", "North America", "Oceania",
+];
+
+function originLabel(o: Origin): string {
+  switch (o) {
+    case "Brazil": return "BR";
+    case "Caribbean": return "CARIB";
+    case "Latin": return "LATIN";
+    case "Africa": return "AFR";
+    case "Middle East": return "ME";
+    case "India": return "IND";
+    case "East Asia": return "E.ASIA";
+    case "Southeast Asia": return "SE.ASIA";
+    case "Europe": return "EU";
+    case "Andes": return "ANDES";
+    case "North America": return "N.AM";
+    case "Oceania": return "OCE";
+  }
+}
+
 function RodaPage() {
   const { rodaId } = Route.useParams();
   const navigate = useNavigate();
 
-  // Stable session player id + name
   const playerIdRef = useRef<string>("");
   if (!playerIdRef.current) playerIdRef.current = generatePlayerId();
 
@@ -56,23 +79,26 @@ function RodaPage() {
     return n;
   }, []);
 
-  const initialRodaName = `Roda ${rodaId}`;
-
   const [playerName, setPlayerName] = useState(initialName);
-  const [rodaName, setRodaName] = useState(initialRodaName);
+  const [rodaName, setRodaName] = useState(`Roda ${rodaId}`);
+  const [genre, setGenre] = useState<string>("open");
+  const [hostId, setHostId] = useState<string>("");
   const [editingName, setEditingName] = useState(false);
   const [instrument, setInstrument] = useState<InstrumentId | null>(null);
   const [notes, setNotes] = useState<Partial<Record<InstrumentId, string>>>({});
+  const [originFilter, setOriginFilter] = useState<Origin | "All">("All");
   const [players, setPlayers] = useState<Player[]>([]);
   const [hits, setHits] = useState<Array<HitEvent & { key: number }>>([]);
   const [recording, setRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [full, setFull] = useState(false);
 
-  // Hydrate roda name from sessionStorage after mount (avoids SSR mismatch)
+  // Hydrate roda name + genre from sessionStorage after mount
   useEffect(() => {
-    const stored = sessionStorage.getItem(`roda-name:${rodaId}`);
-    if (stored) setRodaName(stored);
+    const storedName = sessionStorage.getItem(`roda-name:${rodaId}`);
+    if (storedName) setRodaName(storedName);
+    const storedGenre = sessionStorage.getItem(`roda-genre:${rodaId}`);
+    if (storedGenre) setGenre(storedGenre);
   }, [rodaId]);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -89,11 +115,15 @@ function RodaPage() {
     [playerName, instrument],
   );
 
+  const isHost = hostId === playerIdRef.current;
+  const genreMeta = GENRES.find((g) => g.id === genre) ?? GENRES[0];
+
   // Connect to roda channel
   useEffect(() => {
     const ch = joinRoda({
       rodaId,
       rodaName,
+      genre,
       player: me,
       onHit: (h) => {
         playInstrument(h.instrument, h.note);
@@ -101,7 +131,6 @@ function RodaPage() {
         setHits((prev) => [...prev.slice(-30), { ...h, key: k }]);
       },
       onPlayers: (list) => {
-        // include self if not yet present (presence may lag)
         const hasMe = list.some((p) => p.id === playerIdRef.current);
         const merged = hasMe ? list : [...list, me];
         if (merged.length > MAX_PLAYERS && !hasMe) {
@@ -109,6 +138,14 @@ function RodaPage() {
           return;
         }
         setPlayers(merged);
+      },
+      onMeta: (meta) => {
+        // Only the HOST's genre/name authoritatively define the roda.
+        setHostId(meta.hostId);
+        if (meta.hostId !== playerIdRef.current) {
+          setRodaName(meta.rodaName);
+          setGenre(meta.genre);
+        }
       },
     });
     channelRef.current = ch;
@@ -119,12 +156,12 @@ function RodaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rodaId]);
 
-  // Update presence on local changes
+  // Update presence on local changes (host changes propagate genre/name to all)
   useEffect(() => {
     if (channelRef.current) {
-      void updatePlayer(channelRef.current, me, rodaName);
+      void updatePlayer(channelRef.current, me, rodaName, genre);
     }
-  }, [me, rodaName]);
+  }, [me, rodaName, genre]);
 
   // Periodically announce roda for discovery
   useEffect(() => {
@@ -132,13 +169,14 @@ function RodaPage() {
       void pingDiscovery({
         id: rodaId,
         name: rodaName,
+        genre,
         playerCount: players.length || 1,
       });
     };
     ping();
     const t = setInterval(ping, 8000);
     return () => clearInterval(t);
-  }, [rodaId, rodaName, players.length]);
+  }, [rodaId, rodaName, genre, players.length]);
 
   // Cleanup hit visuals
   useEffect(() => {
@@ -156,15 +194,11 @@ function RodaPage() {
     if (channelRef.current) void broadcastHit(channelRef.current, hit);
   };
 
-  // Keyboard shortcuts:
-  //  - Number keys 1..9,0 → play that note (for selected pitched instrument)
-  //  - Space → replay current instrument with current note
-  //  - Arrow Left/Right → cycle note for selected pitched instrument
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Ignore when typing in inputs / editable fields
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
         return;
       }
       if (!instrument) return;
@@ -177,7 +211,6 @@ function RodaPage() {
       }
 
       if (palette) {
-        // Number row: "1".."9" → idx 0..8, "0" → idx 9
         if (/^[0-9]$/.test(e.key)) {
           const raw = parseInt(e.key, 10);
           const idx = raw === 0 ? 9 : raw - 1;
@@ -229,6 +262,13 @@ function RodaPage() {
       setCopied(false);
     }
   };
+
+  const visibleInstruments = useMemo(
+    () => originFilter === "All"
+      ? INSTRUMENTS
+      : INSTRUMENTS.filter((i) => i.origin === originFilter),
+    [originFilter],
+  );
 
   if (full) {
     return (
@@ -285,11 +325,39 @@ function RodaPage() {
             </div>
           </div>
 
+          {/* Genre row */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-pixel text-[10px] text-accent">GENRE</span>
+            {isHost ? (
+              <select
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                className="bg-night text-foreground text-display text-base px-2 py-1 pixel-border-sm outline-none focus:ring-2 focus:ring-mango"
+                title="As host, you set the genre for this roda"
+              >
+                {GENRES.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.emoji} {g.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="inline-flex items-center gap-1 bg-night px-2 py-1 pixel-border-sm">
+                <span>{genreMeta.emoji}</span>
+                <span className="text-pixel text-[10px] text-mango">{genreMeta.name.toUpperCase()}</span>
+              </div>
+            )}
+            {isHost && (
+              <span className="text-display text-sm text-palm">★ you're the host</span>
+            )}
+          </div>
+
           {/* Players */}
           <div className="mt-4 flex flex-wrap gap-2">
             {Array.from({ length: MAX_PLAYERS }).map((_, i) => {
               const p = players[i];
               const isMe = p?.id === playerIdRef.current;
+              const isHostSlot = p?.id === hostId;
               return (
                 <div
                   key={i}
@@ -321,7 +389,7 @@ function RodaPage() {
                         className={`text-display text-base ${isMe ? "text-mango" : "text-sand"}`}
                         title={isMe ? "Click to rename" : undefined}
                       >
-                        {p.name}{isMe ? " (you)" : ""}
+                        {isHostSlot ? "★ " : ""}{p.name}{isMe ? " (you)" : ""}
                       </button>
                     )
                   ) : (
@@ -401,10 +469,33 @@ function RodaPage() {
           </div>
         )}
 
+        {/* Region filter */}
+        <div className="mt-8 flex flex-wrap items-center gap-2">
+          <h2 className="text-pixel text-sm text-coral mr-2">PICK YOUR INSTRUMENT</h2>
+          <button
+            onClick={() => setOriginFilter("All")}
+            className={`text-pixel text-[9px] px-2 py-1 pixel-border-sm ${
+              originFilter === "All" ? "bg-mango text-night" : "bg-night text-sand hover:bg-muted"
+            }`}
+          >
+            ALL
+          </button>
+          {ORIGINS.map((o) => (
+            <button
+              key={o}
+              onClick={() => setOriginFilter(o)}
+              className={`text-pixel text-[9px] px-2 py-1 pixel-border-sm ${
+                originFilter === o ? "bg-mango text-night" : "bg-night text-sand hover:bg-muted"
+              }`}
+            >
+              {originLabel(o)}
+            </button>
+          ))}
+        </div>
+
         {/* Instruments */}
-        <h2 className="mt-8 text-pixel text-sm text-coral">PICK YOUR INSTRUMENT · TAP TO PLAY</h2>
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {INSTRUMENTS.map((ins) => {
+          {visibleInstruments.map((ins) => {
             const selected = instrument === ins.id;
             const isPitched = !!PITCHED[ins.id];
             const currentNote = notes[ins.id] ?? PITCHED[ins.id]?.[0];
@@ -436,7 +527,7 @@ function RodaPage() {
                     className="text-pixel text-[8px] px-1.5 py-0.5 pixel-border-sm"
                     style={{ background: ins.color, color: "var(--night)" }}
                   >
-                    {ins.origin === "Brazil" ? "BR" : ins.origin === "Caribbean" ? "CARIB" : "LATIN"}
+                    {originLabel(ins.origin)}
                   </span>
                 </div>
                 <div className="mt-2 text-pixel text-[10px] text-mango">{ins.name.toUpperCase()}</div>
