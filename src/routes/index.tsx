@@ -1,8 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { SiteHeader } from "@/components/SiteHeader";
 import { generateRodaId } from "@/lib/roda";
-import { GENRES } from "@/lib/instruments";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -25,14 +23,9 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [genre, setGenre] = useState<string>("open");
 
   const createRoda = () => {
     const id = generateRodaId();
-    const rodaName = name.trim() || "Open Roda";
-    sessionStorage.setItem(`roda-name:${id}`, rodaName);
-    sessionStorage.setItem(`roda-genre:${id}`, genre);
     navigate({ to: "/roda/$rodaId", params: { rodaId: id } });
   };
 
@@ -54,45 +47,15 @@ function HomePage() {
           </p>
 
           <div className="mt-10 mx-auto max-w-md bg-card pixel-border p-5 text-left">
-            <label className="text-pixel text-[10px] text-mango block mb-2">
-              RODA NAME (OPTIONAL)
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Bahia Sunset"
-              maxLength={32}
-              className="w-full bg-night text-foreground text-display text-xl px-3 py-2 pixel-border-sm outline-none focus:ring-2 focus:ring-mango"
-              onKeyDown={(e) => e.key === "Enter" && createRoda()}
-            />
-
-            <label className="mt-4 text-pixel text-[10px] text-mango block mb-2">
-              GENRE / VIBE
-            </label>
-            <select
-              value={genre}
-              onChange={(e) => setGenre(e.target.value)}
-              className="w-full bg-night text-foreground text-display text-lg px-3 py-2 pixel-border-sm outline-none focus:ring-2 focus:ring-mango"
-            >
-              {GENRES.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.emoji} {g.name} · {g.hint}
-                </option>
-              ))}
-            </select>
-
             <button
               onClick={createRoda}
-              className="mt-4 w-full bg-mango text-night text-pixel text-sm py-3 pixel-border hover:bg-coral active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-transform"
+              className="w-full bg-mango text-night text-pixel text-sm py-4 pixel-border hover:bg-coral active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-transform"
             >
-              ▶ OPEN RODA
+              ▶ OPEN A RODA
             </button>
-            <Link
-              to="/browse"
-              className="block text-center mt-3 text-display text-lg text-accent hover:text-mango"
-            >
-              or browse live rodas →
-            </Link>
+            <p className="mt-3 text-center text-display text-base text-sand/70">
+              Share the link with friends to jam together
+            </p>
           </div>
         </section>
 

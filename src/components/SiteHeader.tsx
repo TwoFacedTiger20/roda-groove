@@ -19,13 +19,6 @@ export function SiteHeader() {
           >
             Home
           </Link>
-          <Link
-            to="/browse"
-            className="px-2 py-1 text-foreground hover:text-mango"
-            activeProps={{ className: "px-2 py-1 text-mango" }}
-          >
-            Browse Rodas
-          </Link>
         </nav>
       </div>
     </header>

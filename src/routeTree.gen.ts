@@ -9,15 +9,9 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as BrowseRouteImport } from './routes/browse'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RodaRodaIdRouteImport } from './routes/roda.$rodaId'
 
-const BrowseRoute = BrowseRouteImport.update({
-  id: '/browse',
-  path: '/browse',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,43 +25,32 @@ const RodaRodaIdRoute = RodaRodaIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
   '/roda/$rodaId': typeof RodaRodaIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
   '/roda/$rodaId': typeof RodaRodaIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/browse': typeof BrowseRoute
   '/roda/$rodaId': typeof RodaRodaIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/browse' | '/roda/$rodaId'
+  fullPaths: '/' | '/roda/$rodaId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/browse' | '/roda/$rodaId'
-  id: '__root__' | '/' | '/browse' | '/roda/$rodaId'
+  to: '/' | '/roda/$rodaId'
+  id: '__root__' | '/' | '/roda/$rodaId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  BrowseRoute: typeof BrowseRoute
   RodaRodaIdRoute: typeof RodaRodaIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/browse': {
-      id: '/browse'
-      path: '/browse'
-      fullPath: '/browse'
-      preLoaderRoute: typeof BrowseRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -87,7 +70,6 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  BrowseRoute: BrowseRoute,
   RodaRodaIdRoute: RodaRodaIdRoute,
 }
 export const routeTree = rootRouteImport

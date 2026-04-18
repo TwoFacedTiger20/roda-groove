@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
-  GENRES,
   INSTRUMENTS,
   PITCHED,
   playInstrument,
@@ -16,8 +15,7 @@ import {
   colorForIndex,
   generatePlayerId,
   joinRoda,
-  pingDiscovery,
-  updatePlayer,
+  updatePresence,
   type HitEvent,
   type Player,
 } from "@/lib/roda";
@@ -66,8 +64,12 @@ function RodaPage() {
   const { rodaId } = Route.useParams();
   const navigate = useNavigate();
 
+  // Stable player id and join time — never change for the lifetime of this page.
   const playerIdRef = useRef<string>("");
   if (!playerIdRef.current) playerIdRef.current = generatePlayerId();
+
+  const joinedAtRef = useRef<number>(0);
+  if (!joinedAtRef.current) joinedAtRef.current = Date.now();
 
   const initialName = useMemo(() => {
     if (typeof window === "undefined") return "Player";
@@ -80,9 +82,6 @@ function RodaPage() {
   }, []);
 
   const [playerName, setPlayerName] = useState(initialName);
-  const [rodaName, setRodaName] = useState(`Roda ${rodaId}`);
-  const [genre, setGenre] = useState<string>("open");
-  const [hostId, setHostId] = useState<string>("");
   const [editingName, setEditingName] = useState(false);
   const [instrument, setInstrument] = useState<InstrumentId | null>(null);
   const [notes, setNotes] = useState<Partial<Record<InstrumentId, string>>>({});
@@ -93,59 +92,54 @@ function RodaPage() {
   const [copied, setCopied] = useState(false);
   const [full, setFull] = useState(false);
 
-  // Hydrate roda name + genre from sessionStorage after mount
-  useEffect(() => {
-    const storedName = sessionStorage.getItem(`roda-name:${rodaId}`);
-    if (storedName) setRodaName(storedName);
-    const storedGenre = sessionStorage.getItem(`roda-genre:${rodaId}`);
-    if (storedGenre) setGenre(storedGenre);
-  }, [rodaId]);
-
   const channelRef = useRef<RealtimeChannel | null>(null);
   const recorderRef = useRef<RodaRecorder | null>(null);
   const hitKeyRef = useRef(0);
 
-  const me: Player = useMemo(
-    () => ({
-      id: playerIdRef.current,
-      name: playerName,
-      instrument,
-      color: colorForIndex(0),
-    }),
-    [playerName, instrument],
-  );
+  // Keep latest values in refs so callbacks never go stale.
+  const instrumentRef = useRef<InstrumentId | null>(null);
+  instrumentRef.current = instrument;
+  const notesRef = useRef<Partial<Record<InstrumentId, string>>>({});
+  notesRef.current = notes;
 
-  const isHost = hostId === playerIdRef.current;
-  const genreMeta = GENRES.find((g) => g.id === genre) ?? GENRES[0];
+  const playerNameRef = useRef(playerName);
+  playerNameRef.current = playerName;
 
-  // Connect to roda channel
+  const colorRef = useRef<string>(colorForIndex(0));
+
+  // Build current player object — color is assigned once we know our slot index.
+  const buildMe = (): Player => ({
+    id: playerIdRef.current,
+    name: playerNameRef.current,
+    instrument: instrumentRef.current,
+    color: colorRef.current,
+  });
+
+  // Connect to roda channel — only on mount/rodaId change.
   useEffect(() => {
     const ch = joinRoda({
       rodaId,
-      rodaName,
-      genre,
-      player: me,
+      player: buildMe(),
+      joinedAt: joinedAtRef.current,
       onHit: (h) => {
+        // Play audio for ALL remote hits (our own are played locally on send).
         playInstrument(h.instrument, h.note);
         const k = ++hitKeyRef.current;
         setHits((prev) => [...prev.slice(-30), { ...h, key: k }]);
       },
       onPlayers: (list) => {
+        // Assign stable color based on sorted slot index.
+        const myIndex = list.findIndex((p) => p.id === playerIdRef.current);
+        if (myIndex !== -1) {
+          colorRef.current = colorForIndex(myIndex);
+        }
+
         const hasMe = list.some((p) => p.id === playerIdRef.current);
-        const merged = hasMe ? list : [...list, me];
-        if (merged.length > MAX_PLAYERS && !hasMe) {
+        if (!hasMe && list.length >= MAX_PLAYERS) {
           setFull(true);
           return;
         }
-        setPlayers(merged);
-      },
-      onMeta: (meta) => {
-        // Only the HOST's genre/name authoritatively define the roda.
-        setHostId(meta.hostId);
-        if (meta.hostId !== playerIdRef.current) {
-          setRodaName(meta.rodaName);
-          setGenre(meta.genre);
-        }
+        setPlayers(list);
       },
     });
     channelRef.current = ch;
@@ -156,29 +150,32 @@ function RodaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rodaId]);
 
-  // Update presence on local changes (host changes propagate genre/name to all)
+  // Update presence whenever name or instrument changes.
+  // Use a debounce ref to avoid rapid-fire tracks.
+  const presenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (channelRef.current) {
-      void updatePlayer(channelRef.current, me, rodaName, genre);
-    }
-  }, [me, rodaName, genre]);
-
-  // Periodically announce roda for discovery
-  useEffect(() => {
-    const ping = () => {
-      void pingDiscovery({
-        id: rodaId,
-        name: rodaName,
-        genre,
-        playerCount: players.length || 1,
-      });
+    if (!channelRef.current) return;
+    if (presenceTimerRef.current) clearTimeout(presenceTimerRef.current);
+    presenceTimerRef.current = setTimeout(() => {
+      if (channelRef.current) {
+        void updatePresence(
+          channelRef.current,
+          {
+            id: playerIdRef.current,
+            name: playerName,
+            instrument,
+            color: colorRef.current,
+          },
+          joinedAtRef.current,
+        );
+      }
+    }, 80);
+    return () => {
+      if (presenceTimerRef.current) clearTimeout(presenceTimerRef.current);
     };
-    ping();
-    const t = setInterval(ping, 8000);
-    return () => clearInterval(t);
-  }, [rodaId, rodaName, genre, players.length]);
+  }, [playerName, instrument]);
 
-  // Cleanup hit visuals
+  // Cleanup hit visuals.
   useEffect(() => {
     if (hits.length === 0) return;
     const t = setTimeout(() => setHits((prev) => prev.slice(1)), 800);
@@ -186,27 +183,30 @@ function RodaPage() {
   }, [hits]);
 
   const handleHit = (id: InstrumentId, note?: string) => {
-    const n = note ?? notes[id];
+    const n = note ?? notesRef.current[id];
+    // Play locally immediately for zero-latency feel.
     playInstrument(id, n);
     const hit: HitEvent = { playerId: playerIdRef.current, instrument: id, note: n, at: Date.now() };
     const k = ++hitKeyRef.current;
     setHits((prev) => [...prev.slice(-30), { ...hit, key: k }]);
+    // Broadcast so others hear it.
     if (channelRef.current) void broadcastHit(channelRef.current, hit);
   };
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
         return;
       }
-      if (!instrument) return;
-      const palette = PITCHED[instrument];
+      const instr = instrumentRef.current;
+      if (!instr) return;
+      const palette = PITCHED[instr];
 
       if (e.code === "Space") {
         e.preventDefault();
-        handleHit(instrument);
+        handleHit(instr);
         return;
       }
 
@@ -217,27 +217,27 @@ function RodaPage() {
           if (idx < palette.length) {
             e.preventDefault();
             const n = palette[idx];
-            setNotes((prev) => ({ ...prev, [instrument]: n }));
-            handleHit(instrument, n);
+            setNotes((prev) => ({ ...prev, [instr]: n }));
+            handleHit(instr, n);
           }
           return;
         }
         if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
           e.preventDefault();
-          const current = notes[instrument] ?? palette[0];
+          const current = notesRef.current[instr] ?? palette[0];
           const i = palette.indexOf(current);
           const next = e.key === "ArrowRight"
             ? palette[(i + 1) % palette.length]
             : palette[(i - 1 + palette.length) % palette.length];
-          setNotes((prev) => ({ ...prev, [instrument]: next }));
-          handleHit(instrument, next);
+          setNotes((prev) => ({ ...prev, [instr]: next }));
+          handleHit(instr, next);
         }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instrument, notes]);
+  }, []);
 
   const toggleRecord = async () => {
     if (!recorderRef.current) recorderRef.current = new RodaRecorder();
@@ -277,13 +277,13 @@ function RodaPage() {
         <main className="mx-auto max-w-md px-4 py-16 text-center">
           <h1 className="text-pixel text-xl text-coral">RODA IS FULL</h1>
           <p className="mt-4 text-display text-xl text-sand/90">
-            This roda already has {MAX_PLAYERS} players. Try another or open your own.
+            This roda already has {MAX_PLAYERS} players. Try opening your own.
           </p>
           <button
-            onClick={() => navigate({ to: "/browse" })}
+            onClick={() => navigate({ to: "/" })}
             className="mt-6 bg-mango text-night text-pixel text-xs px-4 py-3 pixel-border"
           >
-            BROWSE RODAS
+            OPEN YOUR OWN RODA
           </button>
         </main>
       </div>
@@ -301,16 +301,15 @@ function RodaPage() {
             <div className="min-w-0">
               <div className="text-pixel text-[10px] text-accent">RODA</div>
               <h1 className="text-pixel text-base sm:text-xl text-mango truncate">
-                {rodaName}
+                /{rodaId}
               </h1>
-              <div className="text-display text-base text-sand/70 mt-1">/{rodaId}</div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={copyLink}
                 className="bg-accent text-night text-pixel text-[10px] px-3 py-2 pixel-border-sm hover:brightness-110"
               >
-                {copied ? "✓ COPIED" : "🔗 SHARE LINK"}
+                {copied ? "✓ COPIED" : "SHARE LINK"}
               </button>
               <button
                 onClick={toggleRecord}
@@ -320,36 +319,9 @@ function RodaPage() {
                     : "bg-mango text-night"
                 }`}
               >
-                {recording ? "⏹ STOP & SAVE" : "⏺ RECORD"}
+                {recording ? "STOP & SAVE" : "RECORD"}
               </button>
             </div>
-          </div>
-
-          {/* Genre row */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-pixel text-[10px] text-accent">GENRE</span>
-            {isHost ? (
-              <select
-                value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-                className="bg-night text-foreground text-display text-base px-2 py-1 pixel-border-sm outline-none focus:ring-2 focus:ring-mango"
-                title="As host, you set the genre for this roda"
-              >
-                {GENRES.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.emoji} {g.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="inline-flex items-center gap-1 bg-night px-2 py-1 pixel-border-sm">
-                <span>{genreMeta.emoji}</span>
-                <span className="text-pixel text-[10px] text-mango">{genreMeta.name.toUpperCase()}</span>
-              </div>
-            )}
-            {isHost && (
-              <span className="text-display text-sm text-palm">★ you're the host</span>
-            )}
           </div>
 
           {/* Players */}
@@ -357,7 +329,6 @@ function RodaPage() {
             {Array.from({ length: MAX_PLAYERS }).map((_, i) => {
               const p = players[i];
               const isMe = p?.id === playerIdRef.current;
-              const isHostSlot = p?.id === hostId;
               return (
                 <div
                   key={i}
@@ -389,7 +360,7 @@ function RodaPage() {
                         className={`text-display text-base ${isMe ? "text-mango" : "text-sand"}`}
                         title={isMe ? "Click to rename" : undefined}
                       >
-                        {isHostSlot ? "★ " : ""}{p.name}{isMe ? " (you)" : ""}
+                        {p.name}{isMe ? " (you)" : ""}
                       </button>
                     )
                   ) : (
@@ -543,8 +514,8 @@ function RodaPage() {
         </div>
 
         <div className="mt-10 text-center">
-          <Link to="/browse" className="text-display text-lg text-accent hover:text-mango">
-            ← Back to live rodas
+          <Link to="/" className="text-display text-lg text-accent hover:text-mango">
+            ← Open a new roda
           </Link>
         </div>
       </main>
