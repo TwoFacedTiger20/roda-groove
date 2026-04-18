@@ -26,6 +26,26 @@ export type InstrumentMeta = {
   hint: string;
 };
 
+// Note name → frequency (Hz). Covers a useful range for our pitched voices.
+export const NOTE_FREQS: Record<string, number> = {
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.0, A3: 220.0, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.0, B5: 987.77,
+  C6: 1046.5,
+};
+
+// Which instruments accept a note, and their available note palettes.
+export const PITCHED: Partial<Record<InstrumentId, string[]>> = {
+  steelpan: ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5", "G5", "C6"],
+  agogo:    ["E4", "G4", "A4", "C5", "E5", "G5"], // pairs: low + high (2.01x)
+  berimbau: ["A2" in NOTE_FREQS ? "A2" : "A3", "C3" in NOTE_FREQS ? "C3" : "C4", "D3", "E3", "G3", "A3"].filter((n) => n in NOTE_FREQS),
+  cuica:    ["C4", "D4", "E4", "G4", "A4", "C5"],
+  conga:    ["A2" in NOTE_FREQS ? "A2" : "A3", "C3", "D3", "E3", "G3", "A3"].filter((n) => n in NOTE_FREQS),
+  bongo:    ["E3", "G3", "A3", "C4", "E4", "G4"],
+  timbales: ["C3", "D3", "E3", "G3", "A3", "C4"],
+  tamborim: ["A4", "C5", "D5", "E5", "G5", "A5"],
+};
+
 export const INSTRUMENTS: InstrumentMeta[] = [
   { id: "surdo",     name: "Surdo",     origin: "Brazil",    emoji: "🥁", color: "var(--hibiscus)", hint: "Deep boom" },
   { id: "repinique", name: "Repinique", origin: "Brazil",    emoji: "🪘", color: "var(--coral)",    hint: "Sharp call" },
