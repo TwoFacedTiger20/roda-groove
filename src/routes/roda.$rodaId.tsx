@@ -368,8 +368,9 @@ function RodaPage() {
                 NOTE · {INSTRUMENTS.find((x) => x.id === instrument)?.name.toUpperCase()}
               </span>
               <div className="flex flex-wrap gap-1.5">
-                {PITCHED[instrument]!.map((n) => {
+                {PITCHED[instrument]!.map((n, idx) => {
                   const active = (notes[instrument] ?? PITCHED[instrument]![0]) === n;
+                  const key = idx === 9 ? "0" : idx < 9 ? String(idx + 1) : null;
                   return (
                     <button
                       key={n}
@@ -377,20 +378,25 @@ function RodaPage() {
                         setNotes((prev) => ({ ...prev, [instrument]: n }));
                         handleHit(instrument, n);
                       }}
-                      className={`text-pixel text-[10px] px-2 py-1.5 pixel-border-sm transition-colors ${
+                      className={`relative text-pixel text-[10px] px-2 py-1.5 pixel-border-sm transition-colors ${
                         active
                           ? "bg-mango text-night"
                           : "bg-night text-sand hover:bg-muted"
                       }`}
                     >
                       {n}
+                      {key && (
+                        <span className={`ml-1 text-[8px] opacity-70 ${active ? "text-night" : "text-accent"}`}>
+                          [{key}]
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
             </div>
             <div className="mt-2 text-display text-sm text-sand/60">
-              Tap a note to change pitch · then tap the instrument to play
+              Keys <span className="text-accent">1–9, 0</span> play notes · <span className="text-accent">←/→</span> cycle · <span className="text-accent">Space</span> replays
             </div>
           </div>
         )}
