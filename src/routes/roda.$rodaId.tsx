@@ -211,7 +211,7 @@ function RodaPage() {
             <div className="min-w-0">
               <div className="text-pixel text-[10px] text-accent">RODA</div>
               <h1 className="text-pixel text-base sm:text-xl text-mango truncate">
-                {initialRodaName}
+                {rodaName}
               </h1>
               <div className="text-display text-base text-sand/70 mt-1">/{rodaId}</div>
             </div>
