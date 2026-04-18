@@ -4,6 +4,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
   INSTRUMENTS,
+  PITCHED,
   playInstrument,
   type InstrumentId,
 } from "@/lib/instruments";
