@@ -55,9 +55,11 @@ export function colorForIndex(i: number): string {
 export function joinRoda(opts: {
   rodaId: string;
   rodaName: string;
+  genre?: string;
   player: Player;
   onHit: (h: HitEvent) => void;
   onPlayers: (players: Player[]) => void;
+  onMeta?: (meta: { rodaName: string; genre: string; hostId: string }) => void;
 }): RealtimeChannel {
   const channel = supabase.channel(`roda:${opts.rodaId}`, {
     config: {
@@ -71,8 +73,12 @@ export function joinRoda(opts: {
   });
 
   channel.on("presence", { event: "sync" }, () => {
-    const state = channel.presenceState<Player & { rodaName: string }>();
+    const state = channel.presenceState<
+      Player & { rodaName: string; genre?: string; joinedAt?: number }
+    >();
     const players: Player[] = [];
+    type Host = { id: string; rodaName: string; genre: string; joinedAt: number };
+    let host: Host | null = null;
     Object.values(state).forEach((entries) => {
       entries.forEach((e) => {
         players.push({
@@ -81,9 +87,22 @@ export function joinRoda(opts: {
           instrument: e.instrument,
           color: e.color,
         });
+        const j = e.joinedAt ?? Number.MAX_SAFE_INTEGER;
+        if (!host || j < host.joinedAt) {
+          host = {
+            id: e.id,
+            rodaName: e.rodaName ?? "Roda",
+            genre: e.genre ?? "open",
+            joinedAt: j,
+          };
+        }
       });
     });
     opts.onPlayers(players);
+    const h = host as Host | null;
+    if (h && opts.onMeta) {
+      opts.onMeta({ rodaName: h.rodaName, genre: h.genre, hostId: h.id });
+    }
   });
 
   channel.subscribe(async (status) => {
@@ -91,6 +110,8 @@ export function joinRoda(opts: {
       await channel.track({
         ...opts.player,
         rodaName: opts.rodaName,
+        genre: opts.genre ?? "open",
+        joinedAt: Date.now(),
       });
     }
   });
@@ -106,21 +127,32 @@ export async function broadcastHit(channel: RealtimeChannel, hit: HitEvent) {
   });
 }
 
-export async function updatePlayer(channel: RealtimeChannel, player: Player, rodaName: string) {
-  await channel.track({ ...player, rodaName });
+export async function updatePlayer(
+  channel: RealtimeChannel,
+  player: Player,
+  rodaName: string,
+  genre?: string,
+) {
+  await channel.track({
+    ...player,
+    rodaName,
+    genre: genre ?? "open",
+    joinedAt: (player as Player & { joinedAt?: number }).joinedAt ?? Date.now(),
+  });
 }
 
 // Browse: subscribe to a discovery channel where each roda announces itself periodically.
 export type PublicRoda = {
   id: string;
   name: string;
+  genre: string;
   playerCount: number;
   updatedAt: number;
 };
 
 const DISCOVERY_CHANNEL = "rodas:discovery";
 
-export function announceRoda(info: { id: string; name: string; playerCount: number }): RealtimeChannel {
+export function announceRoda(info: { id: string; name: string; genre: string; playerCount: number }): RealtimeChannel {
   const ch = supabase.channel(`announce:${info.id}`);
   ch.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
@@ -141,7 +173,6 @@ export function subscribeDiscovery(onUpdate: (rodas: PublicRoda[]) => void): Rea
   ch.on("broadcast", { event: "alive" }, (payload) => {
     const r = payload.payload as PublicRoda;
     rodas.set(r.id, r);
-    // Drop entries older than 20s
     const now = Date.now();
     for (const [id, roda] of rodas) {
       if (now - roda.updatedAt > 20000) rodas.delete(id);
@@ -153,7 +184,7 @@ export function subscribeDiscovery(onUpdate: (rodas: PublicRoda[]) => void): Rea
   return ch;
 }
 
-export async function pingDiscovery(info: { id: string; name: string; playerCount: number }) {
+export async function pingDiscovery(info: { id: string; name: string; genre: string; playerCount: number }) {
   await supabase.channel(DISCOVERY_CHANNEL).send({
     type: "broadcast",
     event: "alive",
