@@ -93,10 +93,10 @@ function RodaPage() {
   useEffect(() => {
     const ch = joinRoda({
       rodaId,
-      rodaName: initialRodaName,
+      rodaName,
       player: me,
       onHit: (h) => {
-        playInstrument(h.instrument);
+        playInstrument(h.instrument, h.note);
         const k = ++hitKeyRef.current;
         setHits((prev) => [...prev.slice(-30), { ...h, key: k }]);
       },
